@@ -165,8 +165,22 @@ class ChallengeService:
 
         if session.get("new"):
             text = (
-                "Привет! Это Испытание дня. "
-                "Выберите категорию: спорт, интеллект, учёба, творчество или случайное."
+                "Привет! Это навык «Испытание дня».\n"
+                "Здесь вы выполняете небольшие задания, получаете опыт, повышаете уровень "
+                "и собираете серию дней.\n\n"
+                "Доступные категории:\n"
+                "• спорт\n"
+                "• интеллект\n"
+                "• учёба\n"
+                "• творчество\n"
+                "• случайное\n\n"
+                "После выполнения задания скажите «выполнил».\n"
+                "Также можно спросить:\n"
+                "• сколько у меня очков\n"
+                "• какой у меня уровень\n"
+                "• какая у меня серия дней\n"
+                "• сколько дней прошло\n"
+                "• расскажи про навык"
             )
             return self._wrap_response(text, profile, user_id)
 
@@ -188,21 +202,99 @@ class ChallengeService:
             if maybe_category:
                 return self._create_challenge(profile, user_id, maybe_category)
 
+        if command == "xp":
+            return self._wrap_response(
+                f"У вас {profile.xp} очков опыта.",
+                profile,
+                user_id,
+            )
+
+        if command == "level":
+            level_name = LEVEL_NAMES.get(profile.level, f"Уровень {profile.level}")
+            return self._wrap_response(
+                f"Ваш уровень {profile.level}: {level_name}.",
+                profile,
+                user_id,
+            )
+
+        if command == "streak":
+            return self._wrap_response(
+                f"Ваша серия составляет {profile.streak} дней.",
+                profile,
+                user_id,
+            )
+
+        if command == "days":
+            if not profile.last_completed_date:
+                text = "Вы ещё не выполняли задания."
+            else:
+                last_date = self._parse_date(profile.last_completed_date)
+                diff = (date.today() - last_date).days
+                text = f"С последнего выполненного задания прошло {diff} дней."
+
+            return self._wrap_response(text, profile, user_id)
+
+        if command == "about":
+            text = (
+                "Создатель навыка — Максимка. "
+                "Навык выполнен в соответствии с требованиями курса "
+                "«Программная инженерия управляющих систем».\n\n"
+                "Игровые механики:\n"
+                "• XP и уровни\n"
+                "• серия дней\n"
+                "• мини-квесты\n"
+                "• случайные события\n\n"
+                "Для реализации проекта используются:\n"
+                "Python\n"
+                "Flask\n"
+                "pytest\n"
+                "black\n"
+                "ruff\n"
+                "pre-commit\n"
+                "gunicorn для сервера на Render."
+            )
+
+            return self._wrap_response(text, profile, user_id)
+
+        if command == "force_quest":
+            return self._create_challenge(
+                profile,
+                user_id,
+                "random",
+                force_quest=True,
+            )
+
+        if command == "progress":
+            next_level_xp = profile.level * 50
+
+            text = (
+                f"У вас {profile.xp} XP. "
+                f"Текущий уровень: {profile.level}. "
+                f"До следующего уровня осталось "
+                f"{max(0, next_level_xp - profile.xp)} XP."
+            )
+
+            return self._wrap_response(text, profile, user_id)
+
         text = (
-            "Не понял команду. Скажите категорию: "
-            "спорт, интеллект, учёба, творчество "
-            "или случайное."
+            "Я не совсем понял запрос. "
+            "Можно выбрать категорию: спорт, интеллект, учёба, творчество или случайное. "
+            "Также можно спросить про опыт, уровень или серию дней."
         )
         return self._wrap_response(text, profile, user_id)
 
     def _create_challenge(
-        self, profile: UserProfile, user_id: str, category: str
+        self,
+        profile: UserProfile,
+        user_id: str,
+        category: str,
+        force_quest: bool = False,
     ) -> dict[str, Any]:
         selected = category
         if category == "random":
             selected = self.rng.choice(["sport", "intellect", "study", "creativity"])
 
-        is_quest = self.rng.random() < 0.20
+        is_quest = force_quest or self.rng.random() < 0.20
         hardcore = self.rng.random() < 0.10
         bonus = not hardcore and self.rng.random() < 0.10
 
@@ -277,6 +369,7 @@ class ChallengeService:
             f"Отлично! Получаете {gained} очков опыта. "
             f"Ваш уровень: {profile.level} — {level_name}. "
             f"Серия дней: {profile.streak}."
+            "Хотите ещё одно задание? Назовите категорию!"
         )
         return self._wrap_response(text, profile, user_id)
 
@@ -294,8 +387,22 @@ class ChallengeService:
             return ""
         if re.search(r"\b(выполнил|готово|сделал|сделала|готов|done)\b", text):
             return "complete"
-        if re.search(r"\b(помощь|help|что делать)\b", text):
+        if re.search(r"\b(помощь|help|что делать|что|помоги)\b", text):
             return "help"
+        if "сколько у меня очков" in text or "мои очки" in text:
+            return "xp"
+        if "мой уровень" in text or "какой у меня уровень" in text:
+            return "level"
+        if "серия дней" in text or "мои дни" in text or "серия моих дней" in text:
+            return "streak"
+        if "сколько дней прошло" in text:
+            return "days"
+        if "расскажи про навык" in text:
+            return "about"
+        if "мини квест" in text or "запусти квест" in text:
+            return "force_quest"
+        if "мой прогресс" in text or "прогресс" in text or "до следующего уровня" in text:
+            return "progress"
         for key, value in CATEGORY_ALIASES.items():
             if text == key or key in text:
                 return value
